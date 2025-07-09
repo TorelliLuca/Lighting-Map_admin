@@ -162,6 +162,15 @@ const Navbar = () => {
                 Elimina comune
               </Link>
             )}
+            {isAdmin && (
+              <Link
+                to="/controllo-accessi"
+                className="block px-3 py-2 rounded-md text-base font-medium text-blue-100 hover:text-white hover:bg-blue-800/20"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Controllo accessi
+              </Link>
+            )}
           </div>
         </div>
       )}

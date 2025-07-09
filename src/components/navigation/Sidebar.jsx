@@ -32,6 +32,7 @@ const AppSidebar = () => {
     { name: "Scarica DB comune", href: "/scarica-report-in-excel", icon: Download },
     { name: "Carica/Modifica comune", href: "/gestione-comuni", icon: Upload, admin: true },
     { name: "Gestisci utenti", href: "/valida-utente", icon: UserCheck, admin: true },
+    { name: "Controllo accessi", href: "/controllo-accessi", icon: UserCheck, admin: true },
     { name: "Rimuovi comune da utente", href: "/rimuovi-comune-da-utente", icon: UserMinus },
     { name: "Elimina comune", href: "/rimuovi-comune", icon: Database, admin: true },
     

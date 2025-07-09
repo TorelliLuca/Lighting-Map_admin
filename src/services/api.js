@@ -26,4 +26,15 @@ export const userService = {
   updateUser: (data) => api.post('/users/update/modifyUser', data),
   sendApprovalEmail: (data) => api.post('/send-email-to-user/isApproved', data),
   downloadCSV: () => api.get('/users/api/downloadCsv', { responseType: 'blob' }),
+  getLightPointsCount: (id) => api.get(`/users/${id}/lightPointsCount`),
+}
+
+// Access Log Services
+export const accessLogService = {
+  getMonthlyUsers: () => api.get('/api/access-logs/stats/monthly-users'),
+  getTopActions: () => api.get('/api/access-logs/stats/top-actions'),
+  getTopUser: () => api.get('/api/access-logs/stats/top-user'),
+  getYearlyTrend: () => api.get('/api/access-logs/stats/yearly-trend'),
+  getFailedRequests: () => api.get('/api/access-logs/stats/failed-requests'),
+  getActionHeatmap: () => api.get('/api/access-logs/stats/action-heatmap'),
 }

@@ -91,7 +91,7 @@ const UploadInCSVFormat = () => {
       console.log(data)
       // Try to create new town hall
       try {
-        //const response = await townHallService.create(data)
+        const response = await townHallService.create(data)
         setAlert({
           type: 'success',
           message: response.data || 'Comune caricato con successo'
@@ -106,6 +106,7 @@ const UploadInCSVFormat = () => {
           })
           
           try {
+            console.log(data)
             const updateResponse = await townHallService.update(data)
             setAlert({
               type: 'success',

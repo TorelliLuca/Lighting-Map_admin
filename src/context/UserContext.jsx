@@ -125,7 +125,7 @@ export const UserProvider = ({ children }) => {
     if (!token) return false
     
     try {
-      const response = await api.post("/refresh-token")
+      const response = await api.post("users/refresh-token")
       const newToken = response.data.token
       updateToken(newToken)
       return true

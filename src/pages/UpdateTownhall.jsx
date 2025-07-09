@@ -310,6 +310,7 @@ const UpdateTownhall = () => {
         name: selectedTownHall.name,
         light_points: jsonData,
       }
+      console.log(data)
 
 
       // Update townhall

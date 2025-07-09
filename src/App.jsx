@@ -17,6 +17,7 @@ const TownHallsPage = lazy(() => import("./pages/TownHallsPage"))
 const UpdateTownhall = lazy(() => import("./pages/UpdateTownhall.jsx"))
 const Login = lazy(() => import('./pages/Login'))
 const NotFound = lazy(() => import('./pages/NotFound'))
+const AccessLogsDashboard = lazy(() => import('./pages/AccessLogsDashboard'))
 
 function App() {
   const { userData, loading } = useUser()
@@ -42,6 +43,7 @@ function App() {
           <Route path="/rimuovi-comune" element={<RemoveTownHall />} />
           <Route path="/comuni" element={userData ? <TownHallsPage /> : <Navigate to="/login" />} />
           <Route path="/gestione-comuni" element={userData ? <UpdateTownhall /> : <Navigate to="/login" />} />
+          <Route path="/controllo-accessi" element={<AccessLogsDashboard />} />
 
         </Route>
         
