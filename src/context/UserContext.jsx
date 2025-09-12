@@ -54,7 +54,7 @@ export const UserProvider = ({ children }) => {
           
           try {
             // Try to refresh the token
-            const response = await api.post("/refresh-token")
+            const response = await api.post("users/refresh-token")
             const newToken = response.data.token
             
             // Update token in state and localStorage

@@ -1,12 +1,43 @@
-import React, { useEffect, useState } from "react"
-import Card from "../components/common/Card"
+"use client"
+
+import { useEffect, useState } from "react"
+import { motion } from "framer-motion"
+import {
+  Users,
+  Activity,
+  AlertTriangle,
+  Crown,
+  Lightbulb,
+  BarChart3,
+  TrendingUp,
+  Zap,
+  Info,
+  Database
+} from "lucide-react"
 import { accessLogService } from "../services/api"
+
+import {
+  GlassCard,
+  GlassCardContent,
+  GlassCardHeader
+} from "../components/ui/glass-card"
+import ModernPageHeader from "../components/ui/modern-page-header"
+import {
+  Bar,
+  BarChart,
+  Line,
+  LineChart as RechartsLineChart,
+  XAxis,
+  YAxis,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  CartesianGrid
+} from "recharts"
+import CountUp from "react-countup"
+import UserModal from "../components/UserModal"
 import { userService } from "../services/api"
 import { useUser } from "../context/UserContext"
-import { Bar, Line } from "react-chartjs-2"
-import "chart.js/auto"
-import CountUp from 'react-countup'
-import { FaUser, FaLightbulb, FaCity, FaCrown, FaChartBar, FaChartLine, FaExclamationTriangle, FaFireAlt, FaUsers } from 'react-icons/fa'
+import { getReadableUserAgent } from "../utils/formatters"
 
 const AccessLogsDashboard = () => {
   const [monthlyUsers, setMonthlyUsers] = useState(0)
@@ -20,292 +51,878 @@ const AccessLogsDashboard = () => {
   const [yearlyTrend, setYearlyTrend] = useState([])
   const [failedRequests, setFailedRequests] = useState(0)
   const [failedRequestsDetails, setFailedRequestsDetails] = useState([])
-  const [actionHeatmap, setActionHeatmap] = useState({})
   const [actionHeatmapRaw, setActionHeatmapRaw] = useState([])
+  const [showModal, setShowModal] = useState(false)
+  const [selectedUser, setSelectedUser] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [monthlyUsersAccessCount, setMonthlyUsersAccessCount] = useState(0)
+  const [monthlyUsersAccessMap, setMonthlyUsersAccessMap] = useState({})
+  const [showAllTownhalls, setShowAllTownhalls] = useState(false)
+  const [showFailedRequestsModal, setShowFailedRequestsModal] = useState(false)
+  const [selectedFailedAction, setSelectedFailedAction] = useState(null)
+  const [selectedFailedDetails, setSelectedFailedDetails] = useState([])
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false)
+  const [lastLoginData, setLastLoginData] = useState({})
 
   useEffect(() => {
-    accessLogService.getMonthlyUsers().then(res => {
-      // Salva tutti i dati per il trend
-      setMonthlyUsersTrend(res.data)
-      // Prendi il mese corrente, oppure l’ultimo disponibile
-      const now = new Date()
-      const currentMonth = now.getMonth() + 1
-      const currentYear = now.getFullYear()
-      const found = res.data.find(
-        d => d.year === currentYear && d.month === currentMonth
-      )
-      setMonthlyUsers(found ? found.userCount : (res.data.length > 0 ? res.data[res.data.length - 1].userCount : 0))
-      setMonthlyUsersList(found && found.users ? found.users : [])
-    })
-    accessLogService.getTopActions().then(res => setTopActions(res.data))
-    accessLogService.getTopUser().then(res => {
-      setTopUser(res.data)
-      if (res.data && res.data._id) {
-        userService.getLightPointsCount(res.data._id).then(lpRes => setTopUserLightPoints(lpRes.data))
-      } else {
-        setTopUserLightPoints(null)
+    const fetchData = async () => {
+      setIsLoading(true)
+      try {
+        const monthlyUsersRes = await accessLogService.getMonthlyUsers()
+        setMonthlyUsersTrend(monthlyUsersRes.data)
+
+        const now = new Date()
+        const currentMonth = now.getMonth() + 1
+        const currentYear = now.getFullYear()
+        const found = monthlyUsersRes.data.find(
+          d => d.year === currentYear && d.month === currentMonth
+        )
+        setMonthlyUsers(
+          found
+            ? found.userCount
+            : monthlyUsersRes.data.length > 0
+            ? monthlyUsersRes.data[monthlyUsersRes.data.length - 1].userCount
+            : 0
+        )
+
+        const sortedUsers =
+          found && found.users
+            ? [...found.users].sort((a, b) =>
+                `${a.name} ${a.surname}`.localeCompare(`${b.name} ${b.surname}`)
+              )
+            : []
+        setMonthlyUsersList(sortedUsers)
+
+        // FETCH ACCESS COUNT FOR ACTIVE USERS
+        if (sortedUsers.length > 0) {
+          const ids = sortedUsers.map(u => u._id)
+          const accessCountRes = await accessLogService.accessThisMonth({ ids })
+          setMonthlyUsersAccessMap(accessCountRes.data)
+          
+          // FETCH LAST LOGIN DATA
+          try {
+            const lastLoginRes = await accessLogService.getLastLogin(ids)
+            console.log(lastLoginRes.data)
+            // Transform array to object with userId as key
+            const lastLoginMap = {}
+            if (Array.isArray(lastLoginRes.data)) {
+              lastLoginRes.data.forEach(item => {
+                if (item.userId && item.latestLogin) {
+                  lastLoginMap[item.userId] = item.latestLogin
+                }
+              })
+            }
+            setLastLoginData(lastLoginMap)
+          } catch (error) {
+            console.error('Error fetching last login data:', error)
+            setLastLoginData({})
+          }
+        } else {
+          setMonthlyUsersAccessMap({})
+          setMonthlyUsersAccessCount(0)
+          setLastLoginData({})
+        }
+
+        const topActionsRes = await accessLogService.getTopActions()
+        setTopActions(topActionsRes.data)
+
+        const topUserRes = await accessLogService.getTopUser()
+        setTopUser(topUserRes.data)
+
+        const yearlyTrendRes = await accessLogService.getYearlyTrend()
+        setYearlyTrend(yearlyTrendRes.data)
+
+        const failedRequestsRes = await accessLogService.getFailedRequests()
+        console.log(failedRequestsRes);
+        const failedArr = Array.isArray(failedRequestsRes.data)
+          ? failedRequestsRes.data
+          : []
+        setFailedRequests(
+          failedArr.reduce((acc, curr) => acc + (curr.count || 0), 0)
+        )
+        setFailedRequestsDetails(failedArr)
+
+        const actionHeatmapRes = await accessLogService.getActionHeatmap()
+        setActionHeatmapRaw(
+          Array.isArray(actionHeatmapRes.data) ? actionHeatmapRes.data : []
+        )
+
+        if (topUserRes.data && topUserRes.data._id) {
+          const lpRes = await userService.getLightPointsCount(
+            topUserRes.data._id
+          )
+          setTopUserLightPoints(lpRes.data)
+        }
+
+        if (userData && (userData.id || userData._id)) {
+          const lpRes = await userService.getLightPointsCount(
+            userData.id || userData._id
+          )
+          setMyLightPoints(lpRes.data)
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+      } finally {
+        setIsLoading(false)
       }
-    })
-    if (userData && (userData.id || userData._id)) {
-      userService.getLightPointsCount(userData.id || userData._id).then(lpRes => setMyLightPoints(lpRes.data))
-    } else {
-      setMyLightPoints(null)
     }
-    accessLogService.getYearlyTrend().then(res => setYearlyTrend(res.data))
-    accessLogService.getFailedRequests().then(res => {
-      // Somma tutti i count
-      const arr = Array.isArray(res.data) ? res.data : [];
-      setFailedRequests(arr.reduce((acc, curr) => acc + (curr.count || 0), 0))
-      setFailedRequestsDetails(arr)
-    })
-    accessLogService.getActionHeatmap().then(res => {
-      setActionHeatmapRaw(Array.isArray(res.data) ? res.data : [])
-    })
-  }, [])
 
-  // Mappa sigle azioni in label user-friendly
-  const actionLabel = (code) => {
-    switch (code) {
-      case 'ADD_REPORT': return 'Aggiunta report';
-      case 'ADD_OPERATION': return 'Operazione effettuata';
-      case 'GET_PROFILE': return 'Visualizza profilo';
-      case 'LOGIN': return 'Login';
-      case 'USER_MANAGEMENT': return 'Gestione utenti';
-      case 'TOWN_HALLS': return 'Gestione comuni';
-      case 'LIGHT_POINTS': return 'Gestione punti luce';
-      case 'REPORTS': return 'Gestione report';
-      case 'OPERATIONS': return 'Gestione operazioni';
-      case 'EMAIL': return 'Email';
-      case 'MAPS': return 'Mappe';
-      default: return code;
+    fetchData()
+  }, [userData])
+
+  const actionLabel = code => {
+    const labels = {
+      ADD_REPORT: "Aggiunta Report",
+      ADD_OPERATION: "Operazione Effettuata",
+      GET_PROFILE: "Visualizza Profilo",
+      LOGIN: "Login",
+      USER_MANAGEMENT: "Gestione Utenti",
+      TOWN_HALLS: "Gestione Comuni",
+      LIGHT_POINTS: "Gestione Punti Luce",
+      REPORTS: "Gestione Report",
+      OPERATIONS: "Gestione Operazioni",
+      EMAIL: "Email",
+      MAPS: "Mappe"
+    }
+    return labels[code] || code
+  }
+
+  const formattedMonthlyUsers = monthlyUsersTrend.map(d => ({
+    name: `${d.month}/${d.year}`,
+    value: d.userCount
+  }))
+
+  const formattedTopActions = topActions.map(a => ({
+    name: actionLabel(a._id),
+    value: a.count
+  }))
+
+  const formattedYearlyTrend = yearlyTrend.map(e => ({
+    name: `${e.month}/${e.year}`,
+    value: e.count
+  }))
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.08 }
     }
   }
 
-  // Prepara i dati per i grafici
-  const topActionsData = {
-    labels: topActions.map(a => actionLabel(a._id)),
-    datasets: [
-      {
-        label: "Numero di azioni",
-        data: topActions.map(a => a.count),
-        backgroundColor: "rgba(59, 130, 246, 0.7)",
-      },
-    ],
+  const cardVariants = {
+    hidden: { opacity: 0, y: 24 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
+    }
   }
 
-  const monthlyUsersData = {
-    labels: monthlyUsersTrend.map(d => `${d.month}/${d.year}`),
-    datasets: [
-      {
-        label: "Utenti unici",
-        data: monthlyUsersTrend.map(d => d.userCount),
-        backgroundColor: "rgba(59, 130, 246, 0.7)",
-      },
-    ],
-  }
+  const StatCard = ({
+    title,
+    value,
+    icon: Icon,
+    description,
+    accent,
+    children,
+    className = ""
+  }) => (
+    <motion.div variants={cardVariants}>
+      <GlassCard variant="elevated" className={`group ${className}`}>
+        <GlassCardHeader className="pb-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div
+                className={`p-3 rounded-xl bg-gradient-to-br from-${accent}-500 to-${accent}-600 shadow-lg`}
+              >
+                <Icon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">{title}</h3>
+                {description && (
+                  <p className="text-sm text-slate-400 mt-1">{description}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </GlassCardHeader>
+        <GlassCardContent>
+          <div
+            className={`text-3xl font-bold text-${accent}-400 mb-4 tracking-tight`}
+          >
+            <CountUp end={value} duration={2.5} separator="." />
+          </div>
+          {children}
+        </GlassCardContent>
+      </GlassCard>
+    </motion.div>
+  )
 
-  const yearlyTrendData = {
-    labels: yearlyTrend.map(e => `${e.month}/${e.year}`),
-    datasets: [
-      {
-        label: "Richieste",
-        data: yearlyTrend.map(e => e.count),
-        fill: false,
-        borderColor: "rgba(16, 185, 129, 1)",
-        backgroundColor: "rgba(16, 185, 129, 0.2)",
-        tension: 0.3,
-      },
-    ],
-  }
-
-  // Funzione per calcolare il colore e il contrasto del testo
-  const getHeatmapCellStyle = (val, max) => {
-    const intensity = max ? val / max : 0;
-    const bg = `rgba(59,130,246,${intensity})`;
-    // Se l'intensità è almeno 0.15, testo bianco, altrimenti blu scuro chiaro
-    let color = '#334155'; // slate-700
-    if (intensity >= 0.15) color = '#fff';
-    return {
-      background: bg,
-      color,
-      fontWeight: 'bold',
-      fontSize: '1rem',
-      borderRadius: '0.375rem', // rounded-md
-      border: '1px solid #334155', // slate-800
-      minWidth: '3.5rem',
-      height: '2.5rem',
-      padding: '0.5rem 0.25rem',
-      transition: 'background 0.2s',
-    };
-  };
-
-  // Heatmap: tabella azione/ora
   const renderHeatmap = () => {
-    if (!actionHeatmapRaw.length) return <div>Nessun dato</div>;
-    // Trova tutte le azioni distinte e tutte le ore distinte
-    const actions = Array.from(new Set(actionHeatmapRaw.map(e => e.action)));
-    const hours = Array.from(new Set(actionHeatmapRaw.map(e => e.hour))).sort((a, b) => a - b);
-    // Crea una matrice ora x azione
+    if (!actionHeatmapRaw.length) {
+      return (
+        <div className="flex items-center justify-center h-40 text-slate-500">
+          <div className="text-center">
+            <Database className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">Nessun dato disponibile</p>
+          </div>
+        </div>
+      )
+    }
+
+    const actions = Array.from(new Set(actionHeatmapRaw.map(e => e.action)))
+    const hours = Array.from(new Set(actionHeatmapRaw.map(e => e.hour))).sort(
+      (a, b) => a - b
+    )
     const matrix = hours.map(hour =>
       actions.map(action => {
-        const found = actionHeatmapRaw.find(e => e.hour === hour && e.action === action);
-        return found ? found.count : 0;
+        const found = actionHeatmapRaw.find(
+          e => e.hour === hour && e.action === action
+        )
+        return found ? found.count : 0
       })
-    );
-    // Trova il massimo per la colorazione
-    const max = Math.max(...matrix.flat());
+    )
+    const max = Math.max(...matrix.flat())
+
+    const getIntensity = val => (max ? val / max : 0)
+    const getCellStyle = intensity => {
+      if (intensity === 0) return "bg-slate-800/20 text-slate-600"
+      if (intensity < 0.25) return "bg-blue-900/30 text-blue-300"
+      if (intensity < 0.5) return "bg-blue-800/50 text-blue-200"
+      if (intensity < 0.75) return "bg-blue-700/70 text-blue-100"
+      return "bg-blue-600/90 text-white"
+    }
+
     return (
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-center align-middle">
-          <thead>
-            <tr>
-              <th className="bg-blue-900/40 text-blue-200 text-base py-3">Ora</th>
+      <div className="overflow-auto max-h-96">
+        <div className="min-w-full space-y-2">
+          <div className="grid grid-cols-[80px_1fr] gap-3 text-xs font-medium text-slate-400 mb-4">
+            <div>Ora</div>
+            <div
+              className="grid gap-2"
+              style={{
+                gridTemplateColumns: `repeat(${actions.length}, minmax(120px, 1fr))`
+              }}
+            >
               {actions.map(action => (
-                <th key={action} className="bg-blue-900/40 text-blue-200 text-base py-3">{actionLabel(action)}</th>
+                <div key={action} className="truncate text-center">
+                  {actionLabel(action)}
+                </div>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {hours.map((hour, i) => (
-              <tr key={hour}>
-                <td className="bg-blue-900/20 text-blue-100 text-base font-semibold py-3">{hour}:00</td>
+            </div>
+          </div>
+          {hours.map((hour, i) => (
+            <div
+              key={hour}
+              className="grid grid-cols-[80px_1fr] gap-3 items-center"
+            >
+              <div className="text-sm font-medium text-slate-300 text-center">
+                {hour.toString().padStart(2, "0")}:00
+              </div>
+              <div
+                className="grid gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${actions.length}, minmax(120px, 1fr))`
+                }}
+              >
                 {actions.map((action, j) => {
-                  const val = matrix[i][j];
+                  const val = matrix[i][j]
+                  const intensity = getIntensity(val)
                   return (
-                    <td
+                    <div
                       key={action}
-                      style={getHeatmapCellStyle(val, max)}
+                      title={`${actionLabel(
+                        action
+                      )}: ${val} azioni alle ${hour}:00`}
+                      className={`h-10 rounded-lg flex items-center justify-center text-sm font-medium transition-all duration-200 hover:scale-105 cursor-pointer border border-slate-700/30 ${getCellStyle(
+                        intensity
+                      )}`}
                     >
-                      {val}
-                    </td>
-                  );
+                      {val || ""}
+                    </div>
+                  )
                 })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-    );
+    )
+  }
+
+  // Funzione per mostrare dettagli richieste fallite
+  const handleShowFailedDetails = async (actionId) => {
+    setIsLoadingDetails(true)
+    setSelectedFailedAction(actionId)
+    setShowFailedRequestsModal(true)
+    try {
+      const res = await accessLogService.getFailedRequestsDetails(actionId)
+      setSelectedFailedDetails(res.data || [])
+    } catch (err) {
+      setSelectedFailedDetails([])
+    }
+    setIsLoadingDetails(false)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-2 border-blue-500/30 border-t-blue-500 mx-auto mb-6"></div>
+          <p className="text-slate-400 text-lg">Caricamento dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4 text-white">Controllo Accessi - Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <Card className="bg-gradient-to-br from-cyan-900/70 to-blue-700/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaUsers className="text-cyan-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Utenti unici (mese)</span>
-          </div>
-          <div className="text-4xl font-bold text-blue-400 flex items-center gap-2">
-            <CountUp end={monthlyUsers} duration={1.2} separator="." />
-          </div>
-          {monthlyUsersList.length > 0 && (
-            <ul className="mt-4 text-blue-200 text-sm">
-              {monthlyUsersList.map(u => (
-                <li key={u._id}>{u.name} {u.surname}</li>
-              ))}
-            </ul>
-          )}
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-900/70 to-cyan-800/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaChartBar className="text-blue-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Trend utenti mensili</span>
-          </div>
-          <Bar data={monthlyUsersData} options={{ plugins: { legend: { labels: { color: '#60a5fa' } } }, scales: { x: { ticks: { color: '#60a5fa' } }, y: { ticks: { color: '#60a5fa' } } } }} />
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-900/70 to-indigo-800/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaChartBar className="text-indigo-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Azioni più effettuate</span>
-          </div>
-          <Bar data={topActionsData} options={{ plugins: { legend: { labels: { color: '#60a5fa' } } }, scales: { x: { ticks: { color: '#60a5fa' } }, y: { ticks: { color: '#60a5fa' } } } }} />
-        </Card>
-        <Card className="bg-gradient-to-br from-green-900/70 to-emerald-800/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaChartLine className="text-green-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Andamento annuale richieste</span>
-          </div>
-          <Line data={yearlyTrendData} options={{ plugins: { legend: { labels: { color: '#34d399' } } }, scales: { x: { ticks: { color: '#34d399' } }, y: { ticks: { color: '#34d399' } } } }} />
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-900/70 to-blue-700/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaCrown className="text-yellow-400 text-3xl drop-shadow" />
-            <span className="text-2xl font-extrabold tracking-tight">Top Utente</span>
-          </div>
-          <div className="text-lg font-semibold text-blue-200 mb-1 flex items-center gap-2">
-            <FaUser className="text-blue-300" />
-            {topUser ? `${topUser.name} ${topUser.surname}` : "N/A"}
-          </div>
-          <div className="text-4xl font-bold text-blue-400 flex items-center gap-2">
-            <CountUp end={topUser?.count || 0} duration={1.2} separator="." />
-            <span className="text-lg font-medium text-blue-200">accessi</span>
-          </div>
-          {topUserLightPoints && (
-            <div className="mt-4 flex flex-col gap-1 text-base">
-              <div className="flex items-center gap-2">
-                <FaLightbulb className="text-yellow-300" />
-                <span>Punti luce: <span className="font-bold text-yellow-200"><CountUp end={topUserLightPoints.totalLightPoints} duration={1.2} separator="." /></span></span>
-              </div>
-              {topUserLightPoints.townhalls && topUserLightPoints.townhalls.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <FaCity className="text-green-300" />
-                  <span>Comuni: <span className="font-semibold text-green-200">{topUserLightPoints.townhalls.join(", ")}</span></span>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black relative">
+      {/* Enhanced Background Pattern for darker theme */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.08),transparent_50%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(148,163,184,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.03)_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+
+      {showModal && (
+        <UserModal
+          userId={selectedUser}
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {showAllTownhalls && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <GlassCard variant="elevated" className="max-w-md w-full p-6 border border-slate-700 shadow-xl">
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="text-lg font-semibold text-emerald-300">Tutti i Comuni</h4>
+        <button
+          className="text-slate-400 hover:text-emerald-400"
+          onClick={() => setShowAllTownhalls(false)}
+        >
+          Chiudi
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto">
+        {myLightPoints.townhalls.sort().map((town, idx) => (
+          <span
+            key={idx}
+            className="text-xs font-medium bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full border border-emerald-500/30"
+          >
+            {town}
+          </span>
+        ))}
+      </div>
+    </GlassCard>
+  </div>
+)}
+
+{showFailedRequestsModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <GlassCard variant="elevated" className="max-w-lg w-full p-6 border border-red-700 shadow-xl">
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="text-lg font-semibold text-red-300">
+          Dettagli richieste fallite: {actionLabel(selectedFailedAction)}
+        </h4>
+        <button
+          className="text-slate-400 hover:text-red-400"
+          onClick={() => setShowFailedRequestsModal(false)}
+        >
+          Chiudi
+        </button>
+      </div>
+      <div className="max-h-72 overflow-y-auto space-y-3">
+        {isLoadingDetails ? (
+          <div className="text-slate-400 text-sm">Caricamento...</div>
+        ) : selectedFailedDetails.length === 0 ? (
+          <div className="text-slate-400 text-sm">Nessun dettaglio disponibile</div>
+        ) : (
+          selectedFailedDetails.map((detail, idx) => (
+            <div key={idx} className="p-3 rounded-lg bg-red-900/20 border border-red-800/30 text-xs text-slate-200">
+  <div><span className="font-semibold text-red-400">User:</span> {detail.user ? detail.user?.name + " " + detail.user?.surname : "Anonimo"}</div>
+  <div><span className="font-semibold text-red-400">Action:</span> {detail.action}</div>
+  <div><span className="font-semibold text-red-400">Resource:</span> {detail.resource}</div>
+  <div><span className="font-semibold text-red-400">Timestamp:</span> {new Date(detail.timestamp).toLocaleString()}</div>
+  <div><span className="font-semibold text-red-400">IP:</span> {detail.ipAddress}</div>
+  <div>
+      <span className="font-semibold text-red-400">User Agent:</span>
+      <ul className="pl-4"> {/* Aggiunto 'pl-4' per il rientro a sinistra */}
+        <li className="font-semibold text-red-300">
+          <strong>Browser: </strong>
+          <span className="font-normal text-white">{getReadableUserAgent(detail.userAgent).browser}</span> {/* Aggiunto 'text-white' per rendere il valore bianco */}
+        </li>
+        <li className="font-semibold text-red-300">
+          <strong>Sistema Operativo: </strong>
+          <span className="font-normal text-white">{getReadableUserAgent(detail.userAgent).os}</span> {/* Aggiunto 'text-white' per rendere il valore bianco */}
+        </li>
+        <li className="font-semibold text-red-300">
+          <strong>Dispositivo: </strong>
+          <span className="font-normal text-white">{getReadableUserAgent(detail.userAgent).device}</span> {/* Aggiunto 'text-white' per rendere il valore bianco */}
+        </li>
+      </ul>
+    </div>
+    <div><span className="font-semibold text-red-400">Outcome:</span> {detail.outcome}</div>
+    <div><span className="font-semibold text-red-400">Details:</span> {detail.details}</div>
+  </div>
+          ))
+        )}
+      </div>
+    </GlassCard>
+  </div>
+)}
+
+      <div className="relative z-10 p-8">
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={containerVariants}
+          className="max-w-[1600px] mx-auto space-y-8"
+        >
+          {/* Header */}
+          <ModernPageHeader
+            title="Dashboard Controllo Accessi"
+            description="Monitoraggio avanzato e analisi degli accessi al sistema in tempo reale"
+
+          />
+
+          {/* Full Width Active Users Card */}
+          <motion.div variants={cardVariants} className="mb-8">
+            <GlassCard variant="elevated" className="group">
+              <GlassCardHeader className="pb-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg">
+                      <Users className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">Utenti Attivi</h3>
+                      <p className="text-sm text-slate-400 mt-1">Utenti unici questo mese</p>
+                    </div>
+                  </div>
+                  <div className="text-3xl font-bold text-blue-400 tracking-tight">
+                    <CountUp end={monthlyUsers} duration={2.5} separator="." />
+                  </div>
+                </div>
+              </GlassCardHeader>
+              <GlassCardContent>
+                {monthlyUsersList.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-700/50">
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-300">Nome</th>
+                          <th className="text-center py-3 px-4 text-sm font-semibold text-slate-300">Accessi</th>
+                          <th className="text-center py-3 px-4 text-sm font-semibold text-slate-300">Ultimo Accesso</th>
+                          <th className="text-center py-3 px-4 text-sm font-semibold text-slate-300">Azioni</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/30">
+                        {monthlyUsersList.map((user, index) => (
+                          <motion.tr
+                            key={user._id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="hover:bg-slate-800/30 transition-colors"
+                          >
+                            <td className="py-3 px-4">
+                              <span className="text-slate-200 font-medium">
+                                {user.name} {user.surname}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="text-blue-300 font-semibold">
+                                <CountUp
+                                  end={monthlyUsersAccessMap[user._id] || 0}
+                                  duration={1.5}
+                                  separator="."
+                                />
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="text-slate-300 text-sm">
+                                {lastLoginData[user._id] 
+                                  ? new Date(lastLoginData[user._id]).toLocaleDateString('it-IT', {
+                                      day: '2-digit',
+                                      month: '2-digit', 
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })
+                                  : 'Mai'
+                                }
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                onClick={() => {
+                                  setSelectedUser(user._id)
+                                  setShowModal(true)
+                                }}
+                                className="text-slate-400 hover:text-blue-400 transition-colors"
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </GlassCardContent>
+            </GlassCard>
+          </motion.div>
+
+          {/* Three Smaller Cards Row */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+            <StatCard
+              title="Richieste Fallite"
+              value={failedRequests}
+              icon={AlertTriangle}
+              description="Errori di sistema"
+              accent="red"
+            >
+              {failedRequestsDetails.length > 0 && (
+                <div className="max-h-32 overflow-y-auto space-y-2">
+                  {failedRequestsDetails.map(item => (
+                    <div
+                      key={item._id}
+                      className="flex justify-between items-center p-2 rounded-lg bg-red-900/10 border border-red-800/20"
+                    >
+                      <span className="text-slate-300 text-sm">
+                        {actionLabel(item._id)}
+                      </span>
+                      <span className="text-s font-medium text-red-400 bg-red-900/20 px-2 py-1 rounded-full">
+                        {item.count}
+                      </span>
+                      <button
+                        className="ml-2 text-red-400 hover:text-red-600"
+                        onClick={() => handleShowFailedDetails(item._id)}
+                        title="Dettagli"
+                      >
+                        <Info size={18} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
-            </div>
-          )}
-        </Card>
-        <Card className="bg-gradient-to-br from-red-900/70 to-orange-800/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaExclamationTriangle className="text-red-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Richieste fallite</span>
-          </div>
-          <div className="text-4xl font-bold text-red-400 flex items-center gap-2">
-            <CountUp end={failedRequests} duration={1.2} separator="." />
-          </div>
-          {failedRequestsDetails.length > 0 && (
-            <ul className="mt-4 text-sm text-red-300">
-              {failedRequestsDetails.map(item => (
-                <li key={item._id}>{actionLabel(item._id)}: <CountUp end={item.count} duration={1.2} separator="." /></li>
-              ))}
-            </ul>
-          )}
-        </Card>
-        <Card className="bg-gradient-to-br from-fuchsia-900/70 to-blue-900/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaFireAlt className="text-fuchsia-300 text-2xl drop-shadow" />
-            <span className="text-xl font-bold tracking-tight">Heatmap azioni</span>
-          </div>
-          {actionHeatmapRaw.length > 0 ? renderHeatmap() : <div>Nessun dato</div>}
-        </Card>
-        <Card className="bg-gradient-to-br from-violet-900/70 to-blue-800/60 border-0 shadow-xl text-white p-6 rounded-2xl hover:scale-[1.02] transition-transform duration-300">
-          <div className="flex items-center gap-3 mb-2">
-            <FaUser className="text-cyan-300 text-3xl drop-shadow" />
-            <span className="text-2xl font-extrabold tracking-tight">I tuoi dati</span>
-          </div>
-          <div className="text-lg font-semibold text-cyan-200 mb-1 flex items-center gap-2">
-            {userData ? `${userData.name} ${userData.surname}` : "N/A"}
-          </div>
-          {myLightPoints && (
-            <div className="mt-4 flex flex-col gap-1 text-base">
-              <div className="flex items-center gap-2">
-                <FaLightbulb className="text-yellow-300" />
-                <span>Punti luce: <span className="font-bold text-yellow-200"><CountUp end={myLightPoints.totalLightPoints} duration={1.2} separator="." /></span></span>
-              </div>
-              {myLightPoints.townhalls && myLightPoints.townhalls.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <FaCity className="text-green-300" />
-                  <span>Comuni: <span className="font-semibold text-green-200">{myLightPoints.townhalls.join(", ")}</span></span>
+            </StatCard>
+
+            <StatCard
+              title="Utente più attivo"
+              value={topUser?.count || 0}
+              icon={Crown}
+              description={
+                topUser
+                  ? `Accessi effettuati da ${topUser.name} ${topUser.surname}`
+                  : "N/A"
+              }
+              accent="amber"
+            >
+              {topUserLightPoints && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-900/10 border border-amber-800/20">
+                    <Lightbulb className="h-4 w-4 text-amber-400" />
+                    <div>
+                      <div className="text-xs text-slate-400">Punti Luce</div>
+                      <div className="text-sm font-semibold text-amber-300">
+                        <CountUp
+                          end={topUserLightPoints.totalLightPoints}
+                          duration={1.5}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  {topUserLightPoints.townhalls &&
+                    topUserLightPoints.townhalls.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {topUserLightPoints.townhalls
+                          .sort()
+                          .slice(0, 3)
+                          .map((town, index) => (
+                            <span
+                              key={index}
+                              className="text-xs font-medium bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full border border-amber-500/30"
+                            >
+                              {town}
+                            </span>
+                          ))}
+                        {topUserLightPoints.townhalls.length > 3 && (
+                          <span className="text-xs font-medium bg-slate-700/50 text-slate-300 px-2 py-1 rounded-full border border-slate-600/50">
+                            +{topUserLightPoints.townhalls.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                 </div>
               )}
-            </div>
-          )}
-        </Card>
+            </StatCard>
+
+            <StatCard
+              title="I Tuoi Punti Luce"
+              value={myLightPoints?.totalLightPoints || 0}
+              icon={Lightbulb}
+              description={
+                userData ? `${userData.name} ${userData.surname}` : "N/A"
+              }
+              accent="emerald"
+            >
+              {myLightPoints &&
+                myLightPoints.townhalls &&
+                myLightPoints.townhalls.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {myLightPoints.townhalls
+                      .sort()
+                      .slice(0, 3)
+                      .map((town, index) => (
+                        <span
+                          key={index}
+                          className="text-xs font-medium bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full border border-emerald-500/30"
+                        >
+                          {town}
+                        </span>
+                      ))}
+                    {myLightPoints.townhalls.length > 3 && (
+                      <span
+                        className="text-xs font-medium bg-slate-700/50 text-slate-300 px-2 py-1 rounded-full border border-slate-600/50 cursor-pointer"
+                        onClick={() => setShowAllTownhalls(true)}
+                      >
+                        +{myLightPoints.townhalls.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+            </StatCard>
+          </div>
+
+          {/* Charts Grid */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+            <motion.div variants={cardVariants}>
+              <GlassCard variant="elevated">
+                <GlassCardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg">
+                      <BarChart3 className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">
+                        Trend Utenti Mensili
+                      </h3>
+                      <p className="text-sm text-slate-400">
+                        Andamento degli accessi nel tempo
+                      </p>
+                    </div>
+                  </div>
+                </GlassCardHeader>
+                <GlassCardContent>
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={formattedMonthlyUsers}
+                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#334155"
+                          opacity={0.3}
+                        />
+                        <XAxis
+                          dataKey="name"
+                          stroke="#64748b"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="#64748b"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <RechartsTooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(15, 23, 42, 0.95)",
+                            border: "1px solid rgba(51, 65, 85, 0.5)",
+                            borderRadius: "12px",
+                            color: "#e2e8f0",
+                            backdropFilter: "blur(12px)"
+                          }}
+                        />
+                        <Bar
+                          dataKey="value"
+                          fill="#3b82f6"
+                          radius={[6, 6, 0, 0]}
+                          opacity={0.8}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </GlassCardContent>
+              </GlassCard>
+            </motion.div>
+
+            <motion.div variants={cardVariants}>
+              <GlassCard variant="elevated">
+                <GlassCardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg">
+                      <TrendingUp className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">
+                        Andamento Annuale
+                      </h3>
+                      <p className="text-sm text-slate-400">
+                        Trend delle richieste nel tempo
+                      </p>
+                    </div>
+                  </div>
+                </GlassCardHeader>
+                <GlassCardContent>
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLineChart
+                        data={formattedYearlyTrend}
+                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#334155"
+                          opacity={0.3}
+                        />
+                        <XAxis
+                          dataKey="name"
+                          stroke="#64748b"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="#64748b"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <RechartsTooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(15, 23, 42, 0.95)",
+                            border: "1px solid rgba(51, 65, 85, 0.5)",
+                            borderRadius: "12px",
+                            color: "#e2e8f0",
+                            backdropFilter: "blur(12px)"
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#10b981"
+                          strokeWidth={3}
+                          dot={{ fill: "#10b981", strokeWidth: 2, r: 5 }}
+                          activeDot={{ r: 7, fill: "#10b981" }}
+                        />
+                      </RechartsLineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </GlassCardContent>
+              </GlassCard>
+            </motion.div>
+          </div>
+
+          {/* Bottom Grid */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <motion.div variants={cardVariants}>
+              <GlassCard variant="elevated">
+                <GlassCardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-violet-500 to-violet-600 shadow-lg">
+                      <Activity className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">
+                        Azioni Più Effettuate
+                      </h3>
+                      <p className="text-sm text-slate-400">
+                        Distribuzione delle operazioni
+                      </p>
+                    </div>
+                  </div>
+                </GlassCardHeader>
+                <GlassCardContent>
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={formattedTopActions}
+                        margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#334155"
+                          opacity={0.3}
+                        />
+                        <XAxis
+                          dataKey="name"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                          stroke="#64748b"
+                          fontSize={11}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="#64748b"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <RechartsTooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(15, 23, 42, 0.95)",
+                            border: "1px solid rgba(51, 65, 85, 0.5)",
+                            borderRadius: "12px",
+                            color: "#e2e8f0",
+                            backdropFilter: "blur(12px)"
+                          }}
+                        />
+                        <Bar
+                          dataKey="value"
+                          fill="#8b5cf6"
+                          radius={[6, 6, 0, 0]}
+                          opacity={0.8}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </GlassCardContent>
+              </GlassCard>
+            </motion.div>
+
+            <motion.div variants={cardVariants}>
+              <GlassCard variant="elevated">
+                <GlassCardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-lg">
+                      <Zap className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">
+                        Heatmap Attività
+                      </h3>
+                      <p className="text-sm text-slate-400">
+                        Distribuzione oraria delle operazioni
+                      </p>
+                    </div>
+                  </div>
+                </GlassCardHeader>
+                <GlassCardContent>{renderHeatmap()}</GlassCardContent>
+              </GlassCard>
+            </motion.div>
+          </div>
+        </motion.div>
       </div>
     </div>
   )
 }
 
-export default AccessLogsDashboard 
+export default AccessLogsDashboard

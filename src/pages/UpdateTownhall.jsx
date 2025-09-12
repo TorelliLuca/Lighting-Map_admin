@@ -55,6 +55,12 @@ const UpdateTownhall = () => {
   const [newTownHallRegion, setNewTownHallRegion] = useState("")
   const [newTownHallIstatCode, setNewTownHallIstatCode] = useState("")
 
+  // Autocomplete state for townhall suggestions
+  const [townhallSuggestions, setTownhallSuggestions] = useState([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [selectedBordersId, setSelectedBordersId] = useState(null)
+
   // Map and coordinates state
   const [coordinates, setCoordinates] = useState({ lat: 41.9028, lng: 12.4964 }) // Default to Rome, Italy
   const [mapInitialized, setMapInitialized] = useState(false)
@@ -132,48 +138,34 @@ const UpdateTownhall = () => {
     setMapInitialized(true)
   }
 
-  // Search for location when town hall name changes
+  // Fetch townhall suggestions when name changes
   useEffect(() => {
-    if (mapInitialized && newTownHallName.length > 3 && !searchingLocation) {
-      const searchLocation = async () => {
-        setSearchingLocation(true)
+    if (newTownHallName.length >= 2) {
+      const fetchSuggestions = async () => {
+        setLoadingSuggestions(true)
         try {
-          // Use Nominatim API to search for location
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(newTownHallName)}, Italy`,
-          )
-          const data = await response.json()
-
-          if (data && data.length > 0) {
-            const location = data[0]
-            const newCoords = {
-              lat: Number.parseFloat(location.lat),
-              lng: Number.parseFloat(location.lon),
-            }
-
-            setCoordinates(newCoords)
-
-            // Update map and marker
-            if (mapInstanceRef.current && markerRef.current) {
-              markerRef.current.setLatLng([newCoords.lat, newCoords.lng])
-              mapInstanceRef.current.setView([newCoords.lat, newCoords.lng], 12)
-            }
-          }
+          const response = await townHallService.getSuggestions(newTownHallName)
+          setTownhallSuggestions(response.data || [])
+          setShowSuggestions(true)
         } catch (error) {
-          console.error("Error searching for location:", error)
+          console.error("Error fetching suggestions:", error)
+          setTownhallSuggestions([])
         } finally {
-          setSearchingLocation(false)
+          setLoadingSuggestions(false)
         }
       }
 
       // Debounce the search
       const timer = setTimeout(() => {
-        searchLocation()
-      }, 1000)
+        fetchSuggestions()
+      }, 300)
 
       return () => clearTimeout(timer)
+    } else {
+      setTownhallSuggestions([])
+      setShowSuggestions(false)
     }
-  }, [newTownHallName, mapInitialized])
+  }, [newTownHallName])
 
   // Fetch townhalls on component mount
   useEffect(() => {
@@ -215,6 +207,48 @@ const UpdateTownhall = () => {
     setSelectedTownHall(townHall)
     setTownHallSearch(townHall.name)
     setShowTownHallDropdown(false)
+  }
+
+  // Handle suggestion selection and fetch geo info
+  const handleSuggestionSelect = async (suggestion) => {
+    try {
+      setLoadingSuggestions(true)
+      setShowSuggestions(false)
+      
+      // Set the selected townhall name
+      setNewTownHallName(suggestion.properties.comune)
+      
+      // Store the borders ID for form submission
+      setSelectedBordersId(suggestion._id)
+      
+      // Fetch detailed geo info
+      const geoResponse = await townHallService.getGeoInfo(suggestion._id)
+      const geoData = geoResponse.data
+      
+      // Populate form fields with geo data
+      setNewTownHallProvince(geoData.provincia || "")
+      setNewTownHallRegion(geoData.regione || "")
+      
+      // Update coordinates
+      const newCoords = {
+        lat: geoData.latitudine,
+        lng: geoData.longitudine
+      }
+      setCoordinates(newCoords)
+      
+      // Update map and marker if initialized
+      if (mapInstanceRef.current && markerRef.current) {
+        markerRef.current.setLatLng([newCoords.lat, newCoords.lng])
+        mapInstanceRef.current.setView([newCoords.lat, newCoords.lng], 12)
+      }
+      
+      toast.success(`Dati caricati per ${geoData.comune}`)
+    } catch (error) {
+      console.error("Error fetching geo info:", error)
+      toast.error("Errore durante il caricamento dei dati geografici")
+    } finally {
+      setLoadingSuggestions(false)
+    }
   }
 
   // File handlers for updating existing townhall
@@ -304,13 +338,15 @@ const UpdateTownhall = () => {
 
       // Convert CSV to JSON
       const jsonData = csvToJson(fileContent)
+      const userData = JSON.parse(localStorage.getItem("userData"))
 
+      const userEmail = userData.email
       // Prepare data for API
       const data = {
         name: selectedTownHall.name,
+        userEmail: userEmail,
         light_points: jsonData,
       }
-      console.log(data)
 
 
       // Update townhall
@@ -371,6 +407,9 @@ const UpdateTownhall = () => {
 
       // Convert CSV to JSON
       const jsonData = csvToJson(fileContent)
+      const userData = JSON.parse(localStorage.getItem("userData"))
+
+      const userEmail = userData.email
 
       // Prepare data for API
       const data = {
@@ -381,8 +420,9 @@ const UpdateTownhall = () => {
           lat: coordinates.lat,
           lng: coordinates.lng,
         },
+        borders: selectedBordersId, // Add borders ID from selected suggestion
         light_points: jsonData,
-        userEmail: localStorage.getItem("email"),
+        userEmail: userEmail,
       }
 
       // Create new townhall
@@ -414,6 +454,7 @@ const UpdateTownhall = () => {
       setNewTownHallProvince("")
       setNewTownHallRegion("")
       setNewTownHallIstatCode("")
+      setSelectedBordersId(null) // Reset borders ID
       setCoordinates({ lat: 41.9028, lng: 12.4964 }) // Reset to Rome
 
       // Reset map view
@@ -601,14 +642,63 @@ const UpdateTownhall = () => {
 
               {/* New Townhall Form */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="Nome Comune *"
-                  type="text"
-                  value={newTownHallName}
-                  onChange={(e) => setNewTownHallName(e.target.value)}
-                  placeholder="Inserisci il nome del comune"
-                  required
-                />
+                {/* Custom autocomplete input for townhall name */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-blue-300">Nome Comune *</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={newTownHallName}
+                      onChange={(e) => {
+                        setNewTownHallName(e.target.value)
+                        if (e.target.value.length < 2) {
+                          setShowSuggestions(false)
+                        }
+                      }}
+                      onFocus={() => {
+                        if (townhallSuggestions.length > 0) {
+                          setShowSuggestions(true)
+                        }
+                      }}
+                      onBlur={(e) => {
+                        // Only hide if not clicking on suggestions dropdown
+                        if (!e.relatedTarget || !e.relatedTarget.closest('.suggestions-dropdown')) {
+                          setTimeout(() => setShowSuggestions(false), 150)
+                        }
+                      }}
+                      placeholder="Inserisci il nome del comune"
+                      className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-md shadow-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                    {loadingSuggestions && (
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                        <div className="animate-spin h-4 w-4 border-t-2 border-b-2 border-blue-500 rounded-full"></div>
+                      </div>
+                    )}
+                    
+                    {/* Suggestions dropdown */}
+                    {showSuggestions && townhallSuggestions.length > 0 && (
+                      <div className="suggestions-dropdown absolute z-10 mt-1 w-full bg-slate-800 border border-blue-900/30 rounded-md shadow-lg max-h-60 overflow-auto">
+                        {townhallSuggestions.map((suggestion) => (
+                          <div
+                            key={suggestion._id}
+                            className="px-4 py-2 hover:bg-blue-800/30 cursor-pointer text-white border-b border-slate-700/50 last:border-b-0"
+                            onMouseDown={(e) => {
+                              e.preventDefault() // Prevent input blur
+                              handleSuggestionSelect(suggestion)
+                            }}
+                          >
+                            <div className="font-medium">{suggestion.properties.comune}</div>
+                            <div className="text-sm text-blue-300">
+                              Codice: {suggestion.properties.pro_com}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
                 <Input
                   label="Provincia"
                   type="text"

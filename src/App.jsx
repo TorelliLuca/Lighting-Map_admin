@@ -18,6 +18,9 @@ const UpdateTownhall = lazy(() => import("./pages/UpdateTownhall.jsx"))
 const Login = lazy(() => import('./pages/Login'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 const AccessLogsDashboard = lazy(() => import('./pages/AccessLogsDashboard'))
+const AddOrganization = lazy(() => import('./pages/AddOrganization'))
+const AddUserToOrganization = lazy(() => import('./pages/AddUserToOrganization'))
+const HandleOrganizations = lazy(() => import('./pages/HandleOrganizations'))
 
 function App() {
   const { userData, loading } = useUser()
@@ -44,6 +47,9 @@ function App() {
           <Route path="/comuni" element={userData ? <TownHallsPage /> : <Navigate to="/login" />} />
           <Route path="/gestione-comuni" element={userData ? <UpdateTownhall /> : <Navigate to="/login" />} />
           <Route path="/controllo-accessi" element={<AccessLogsDashboard />} />
+          <Route path="/aggiungi-organizzazione" element={<AddOrganization />} />
+          <Route path="/aggiungi-utente-organizzazione" element={<AddUserToOrganization />} />
+          <Route path="/gestione-organizzazioni" element={<HandleOrganizations />} />
 
         </Route>
         

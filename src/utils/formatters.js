@@ -1,3 +1,5 @@
+import {UAParser} from "ua-parser-js";
+
 /**
  * Formats a date string to a localized format
  * @param {string} isoString - ISO date string
@@ -48,8 +50,55 @@ export const formatDate = (isoString, includeTime = true) => {
     return `${str.substring(0, length)}...`;
   };
   
-  /**
-   * Translates report types from English to Italian
-   * @param {string} englishString - English report type
-   * @returns {string} Italian translation
-   */
+ /* 
+ * sort in alphabetical order the array given
+ */
+export const sortArrayAlphabetically = (array) => {
+  if (!Array.isArray(array)) return [];
+  return array.sort((a, b) => a.localeCompare(b));
+};
+
+/**
+ * format user agent string
+ */
+export const getReadableUserAgent = (uaString) => {
+  if (!uaString) {
+    return "User Agent non fornito";
+  }
+
+  const parser = new UAParser(uaString);
+  const result = parser.getResult();
+
+  const browser = result.browser.name ? `${result.browser.name} ${result.browser.major}` : "Sconosciuto";
+  const os = result.os.name ? `${result.os.name} ${result.os.version || ''}`.trim() : "Sconosciuto";
+  // La libreria rileva 'console', 'mobile', 'tablet', 'smarttv', etc.
+  const device = result.device.type || "Desktop";
+  const res = {
+    browser,
+    os,
+    device
+  }
+
+  return res;
+}
+
+export const mapOrganizationTypeToItalian = (type) => {
+  switch (type) {
+    case 'ENTERPRISE':
+      return 'Impresa';
+    case 'TOWNHALL':
+      return 'Comune';
+    default:
+      return '';
+  }
+
+}
+
+export const formatTitleCase = (str) => {
+  if (!str) return ""
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+}
